@@ -78,7 +78,7 @@ RUN gunzip eve-optee.pem.gz && gunzip eve-optee-pub.pem.gz
 ENV EVE_TA_SIGN_KEY="/optee_os/eve-optee.pem"
 
 # Target platforms to build OPTEE-OS
-ENV OPTEEOS_TARGETS="qemu imx8mp_pollux imx8mp_epc_r3720"
+ENV OPTEEOS_TARGETS="qemu imx8mp_pollux imx8mp_epc_r3720 imx8mp_ecu150v2"
 
 # QEMU
 ENV OPTEEOS_REV_qemu=2be3770e85826ae69748fc3e68920d7293a98c5d
@@ -103,10 +103,20 @@ ENV OPTEEOS_UART_imx8mp_epc_r3720="0x30880000"
 ENV OPTEEOS_SRC_imx8mp_epc_r3720="epc_r3720"
 ENV OPTEEOS_CUSTOM_imx8mp_epc_r3720="CFG_DDR_SIZE=0x180000000ULL"
 
+# Advantech ECU-150v2: same imx-optee-os revision and EVK flavor as EPC-R3720;
+# UART2 instead of UART3, and 4GB of DDR instead of 6GB.
+ENV OPTEEOS_REV_imx8mp_ecu150v2=c939619d64dea014ad1b8382356eee4d1cbfbb22
+ENV OPTEEOS_imx8mp_ecu150v2="imx"
+ENV OPTEEOS_FLAVOR_imx8mp_ecu150v2="mx8mpevk"
+ENV OPTEEOS_UART_imx8mp_ecu150v2="0x30890000"
+ENV OPTEEOS_SRC_imx8mp_ecu150v2="ecu150v2"
+ENV OPTEEOS_CUSTOM_imx8mp_ecu150v2="CFG_DDR_SIZE=0x100000000ULL"
+
 # Repositories
 ADD https://github.com/OP-TEE/optee_os.git#${OPTEEOS_REV_qemu} ${OPTEEOS_SRC_qemu}
 ADD https://github.com/nxp-imx/imx-optee-os.git#${OPTEEOS_REV_imx8mp_epc_r3720} ${OPTEEOS_SRC_imx8mp_epc_r3720}
 ADD https://github.com/nxp-imx/imx-optee-os.git#${OPTEEOS_REV_imx8mp_pollux} ${OPTEEOS_SRC_imx8mp_pollux}
+ADD https://github.com/nxp-imx/imx-optee-os.git#${OPTEEOS_REV_imx8mp_ecu150v2} ${OPTEEOS_SRC_imx8mp_ecu150v2}
 
 # hadolint ignore=DL3003,SC2086
 RUN for t in ${OPTEEOS_TARGETS}; do \
