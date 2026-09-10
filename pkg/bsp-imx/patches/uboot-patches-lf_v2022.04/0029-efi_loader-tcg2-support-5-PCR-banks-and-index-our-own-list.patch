@@ -1,0 +1,122 @@
+From: Danny Lu <suricata.lu@gmail.com>
+Subject: [PATCH 29/29] efi_loader: tcg2: support 5 PCR banks and index our own
+ algorithm list
+
+Two defects in lib/efi_loader/efi_tcg2.c stop EFI_TCG2_PROTOCOL from
+registering on the Advantech ECU-150v2, whose TPM is an STMicroelectronics
+part (VendorID 0x104a, DeviceID 0x0003) on I2C2 @ 0x2e.
+
+Observed on hardware before this patch:
+
+    ** Unable to read file ubootefi.var **        <- pre-existing, harmless
+    Failed to load EFI variables                 <- pre-existing, harmless
+    Failed to delete final events config table
+    Cannot install EFI_TCG2_PROTOCOL
+    Error: Cannot initialize UEFI sub-system, r = 7
+
+r = 7 is EFI_DEVICE_ERROR. efi_tcg2_register() reaches
+efi_init_event_log() -> create_specid_event(), whose ret is initialised to
+EFI_DEVICE_ERROR and left untouched by both of its "goto out" paths, so any
+failure inside it surfaces exactly like this. "Failed to delete final events
+config table" narrows it further: that line only comes from tcg2_uninit(),
+which efi_tcg2_register() calls solely on the efi_init_event_log() /
+efi_add_protocol() / efi_create_event() failures, not on the earlier
+platform_get_tpm2_device() or tpm_startup() ones.
+
+1) hash_algo_list[] has four entries, but the count check claims five
+
+   MAX_HASH_COUNT is ARRAY_SIZE(hash_algo_list), which lists SHA1, SHA256,
+   SHA384 and SHA512 -- four. tpm2_get_pcr_info() nonetheless says:
+
+       /*
+        * We only support 5 algorithms for now so check against that
+        * instead of TPM2_NUM_PCR_BANKS
+        */
+       if (pcrs.count > MAX_HASH_COUNT || pcrs.count < 1)
+               goto out;
+
+   The comment and the array disagree; upstream's list does carry a fifth
+   entry, SM3_256 (see include/tpm-v2.h in current U-Boot, where the list was
+   later moved). This patch adds it, so MAX_HASH_COUNT becomes 5 and matches
+   the documented intent.
+
+   The ECU-150v2's TPM reports five banks. Read back at the U-Boot prompt with
+   "tpm2 get_capability 0x5 0 0x50000000 1 ; md.b 0x50000000 0x20":
+
+       00 00 00 05                 count = 5
+       00 04 03 00 00 00           SHA1     (0x0004), not allocated
+       00 0b 03 ff ff ff           SHA256   (0x000b), all 24 PCRs allocated
+       00 0c 03 ff ff ff           SHA384   (0x000c), all 24 PCRs allocated
+       00 27 03 00 00 00           SHA3_256 (0x0027), not allocated
+       00 28 03 00 00 00           SHA3_384 (0x0028), not allocated
+
+   5 > 4, so the check rejected a perfectly ordinary TPM.
+
+   SM3_256 is only ever added to the table of algorithms this code knows how
+   to name; nothing hashes with it unless a TPM reports an active SM3 bank.
+   On this board active_pcr is SHA256|SHA384 -- alg_to_mask() returns 0 for
+   the two SHA3 banks, which tpm2_get_pcr_info() already handles by logging
+   "Unknown algorithm" and skipping them.
+
+2) create_specid_event() bounds its loop with the TPM's bank count
+
+       for (i = 0; i < pcr_count; i++) {
+               u16 hash_alg = hash_algo_list[i].hash_alg;
+
+   pcr_count is what the TPM reported, but the array being indexed is our own
+   list; every other loop over hash_algo_list[] in this file correctly uses
+   MAX_HASH_COUNT. Two consequences:
+
+     - With pcr_count > ARRAY_SIZE(hash_algo_list) it reads past the array.
+       Only the check in (1) keeps that from happening, which is why a
+       one-line list extension would otherwise be load-bearing for memory
+       safety rather than for functionality.
+
+     - With pcr_count smaller than our list it silently skips algorithms. A
+       TPM reporting one bank (SHA256 only) would examine hash_algo_list[0],
+       i.e. SHA1, find nothing active, leave alg_count at 0, and fail the
+       "number_of_algorithms < 1" check below -- the same EFI_DEVICE_ERROR,
+       for the opposite reason.
+
+   Using MAX_HASH_COUNT makes the loop mean "which of the algorithms we know
+   about are active on this TPM", which is what the surrounding code expects,
+   and makes the result independent of how many banks the part reports. This
+   half is not needed for the ECU-150v2 once (1) is in place; it is here so a
+   different TPM part does not reintroduce the same failure.
+
+Why this matters for EVE: pkg/pillar/evetpm/tpm.go:1247-1251 refuses to seal
+the vault key while PCR 0 or PCR 4 is all-zero in the SHA-256 bank, and those
+PCRs are extended by exactly this protocol. Without it VaultStatus never
+reports ConversionComplete, volumemgr blocks in wait.WaitForVault
+(pkg/pillar/cmd/volumemgr/volumemgr.go:253), and every app instance stays in
+INITIAL with no error recorded anywhere.
+
+Upstream-Status: Backport-ish [(1) mirrors upstream's algorithm list; (2) is
+equivalent to how upstream later restructured the loop]
+
+Signed-off-by: Danny Lu <suricata.lu@gmail.com>
+---
+diff -urN a/lib/efi_loader/efi_tcg2.c b/lib/efi_loader/efi_tcg2.c
+--- a/lib/efi_loader/efi_tcg2.c
++++ b/lib/efi_loader/efi_tcg2.c
+@@ -95,6 +95,11 @@
+ 		EFI_TCG2_BOOT_HASH_ALG_SHA512,
+ 		TPM2_SHA512_DIGEST_SIZE,
+ 	},
++	{
++		TPM2_ALG_SM3_256,
++		EFI_TCG2_BOOT_HASH_ALG_SM3_256,
++		TPM2_SM3_256_DIGEST_SIZE,
++	},
+ };
+ 
+ struct variable_info {
+@@ -1624,7 +1629,7 @@
+ 	if (err)
+ 		goto out;
+ 
+-	for (i = 0; i < pcr_count; i++) {
++	for (i = 0; i < MAX_HASH_COUNT; i++) {
+ 		u16 hash_alg = hash_algo_list[i].hash_alg;
+ 		u16 hash_len = hash_algo_list[i].hash_len;
+ 
