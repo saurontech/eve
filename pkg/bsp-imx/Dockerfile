@@ -7,7 +7,11 @@ ARG BUILD_PKGS_BASE="bash binutils-dev build-base bc bison flex openssl-dev util
 ARG EVE_ALPINE_IMAGE=lfedge/eve-alpine:d075dd224fa7a7540817d224cc28d3cd998ad04c
 
 # OPTEE-OS images
-FROM lfedge/eve-optee-os:70a19334969c2d1eb8748a31203e63d54b2d3530 AS optee-os
+# NOTE: this tag must be bumped in the same commit as any pkg/optee-os change --
+# it is linuxkit's content hash of pkg/optee-os. The imx8mp_ecu150v2 OP-TEE image
+# only exists once pkg/optee-os carries that target; the previous hash resolves to
+# an image without it. Refresh with: linuxkit pkg show-tag pkg/optee-os
+FROM lfedge/eve-optee-os:cc2c94c1e79788388a1d5cf15ed5d9de78b25262 AS optee-os
 
 # hadolint ignore=DL3006
 FROM ${EVE_ALPINE_IMAGE} AS build-native
@@ -61,8 +65,8 @@ SHELL ["/bin/bash", "-eo", "pipefail", "-c"]
 
 RUN mkdir /bsp
 
-ENV UBOOT_TARGETS "imx8mq_evk imx8mp_pollux imx8mp_epc_r3720"
-ENV ATF_TARGETS "imx8mq_evk imx8mp_pollux imx8mp_epc_r3720"
+ENV UBOOT_TARGETS "imx8mq_evk imx8mp_pollux imx8mp_epc_r3720 imx8mp_ecu150v2"
+ENV ATF_TARGETS "imx8mq_evk imx8mp_pollux imx8mp_epc_r3720 imx8mp_ecu150v2"
 
 RUN mkdir /uboot-firmwares
 
@@ -94,10 +98,18 @@ ENV ATF_SPD_imx8mp_epc_r3720 "opteed"
 ENV ATF_SRC_imx8mp_epc_r3720 "epc-r3720"
 ENV ATF_UART_imx8mp_epc_r3720 "0x30880000"
 
+# Advantech ECU-150v2
+ENV ATF_COMMIT_imx8mp_ecu150v2 5782363f92a2fdf926784449270433cf3ddf44bd
+ENV ATF_imx8mp_ecu150v2 "imx8mp"
+ENV ATF_SPD_imx8mp_ecu150v2 "opteed"
+ENV ATF_SRC_imx8mp_ecu150v2 "ecu150v2"
+ENV ATF_UART_imx8mp_ecu150v2 "0x30890000"
+
 # Repositories
 ADD https://github.com/nxp-imx/imx-atf.git#${ATF_COMMIT_imx8mq_evk} ${ATF_SRC_imx8mq_evk}
 ADD https://github.com/nxp-imx/imx-atf.git#${ATF_COMMIT_imx8mp_pollux} ${ATF_SRC_imx8mp_pollux}
 ADD https://github.com/nxp-imx/imx-atf.git#${ATF_COMMIT_imx8mp_epc_r3720} ${ATF_SRC_imx8mp_epc_r3720}
+ADD https://github.com/nxp-imx/imx-atf.git#${ATF_COMMIT_imx8mp_ecu150v2} ${ATF_SRC_imx8mp_ecu150v2}
 # hadolint ignore=DL3003,SC2086
 RUN for t in ${ATF_TARGETS}; do \
         [ "$EVE_TARGET_ARCH" != "aarch64" ] && break ;\
@@ -173,6 +185,14 @@ ENV UBOOT_FILES_imx8mp_epc_r3720 "flash.bin"
 ENV UBOOT_CONFIG_imx8mp_epc_r3720 "imx8mp_rsb3720a1_6G"
 ENV UBOOT_DTB_imx8mp_epc_r3720 "arch/arm/dts/imx8mp-rsb3720-a1.dtb"
 ENV FLASH_OFFSET_imx8mp_epc_r3720 "32"
+
+# u-boot target and files for imx8mp_ecu150v2
+# defconfig and control DTB are added by
+# patches/uboot-patches-lf_v2022.04/0027-board-imx8mp-Add-Advantech-ECU-150v2-target.patch
+ENV UBOOT_FILES_imx8mp_ecu150v2 "flash.bin"
+ENV UBOOT_CONFIG_imx8mp_ecu150v2 "imx8mp_ecu150v2"
+ENV UBOOT_DTB_imx8mp_ecu150v2 "arch/arm/dts/imx8mp-ecu150v2.dtb"
+ENV FLASH_OFFSET_imx8mp_ecu150v2 "32"
 
 # hadolint ignore=SC2086
 RUN for target in ${UBOOT_TARGETS}; do \

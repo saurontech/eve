@@ -20,7 +20,7 @@ KERNEL_COMPILER=gcc
 KERNEL_CONFIG_FLAVOR ?=
 
 PLATFORMS_amd64=generic rt
-PLATFORMS_arm64=generic nvidia-jp5 nvidia-jp6 nvidia-jp7 imx8mp_pollux imx8mp_epc_r3720 imx8mq_evk
+PLATFORMS_arm64=generic nvidia-jp5 nvidia-jp6 nvidia-jp7 imx8mp_pollux imx8mp_epc_r3720 imx8mq_evk imx8mp_ecu150v2
 PLATFORMS_riscv64=generic
 ARCHS=amd64 arm64 riscv64
 
